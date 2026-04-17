@@ -1,0 +1,18 @@
+# Shared optimizer defaults — scenarios override as needed
+optimizer:
+  lr_v: 0.05
+  lr_k: 0.005
+  max_iters: 500
+  converge_patience: 20
+  loss_tol: 1.0e-6
+  min_iters: 50
+
+weights:
+  w_phi: 1.0       # -log(SRM) weight
+  w_u: 0.001       # control effort
+  w_du: 0.0005     # control smoothness
+  w_K: 0.0005      # feedback gain regularization
+  w_dist: 0.05     # terminal goal distance
+  w_obs: 0.0       # obstacle repulsion (auxiliary)
+
+alpha: 0.95          # satisfaction threshold for early stop

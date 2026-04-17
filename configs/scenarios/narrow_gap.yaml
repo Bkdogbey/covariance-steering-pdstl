@@ -1,0 +1,34 @@
+label: "Narrow Gap"
+dynamics: configs/dynamics/double_integrator.yaml
+
+horizon: 25
+
+initial_state:
+  mean: [0.0, 0.0, 1.0, 0.0]
+  cov_diag: [0.05, 0.05, 0.01, 0.01]
+
+goal:
+  x_range: [8.0, 10.0]
+  y_range: [-1.0, 1.0]
+
+bounds:
+  x_range: [-1.0, 11.0]
+  y_range: [-4.0, 4.0]
+
+obstacles:
+  - type: rectangle
+    x_range: [3.5, 6.5]
+    y_range: [0.8, 4.0]
+  - type: rectangle
+    x_range: [3.5, 6.5]
+    y_range: [-4.0, -0.8]
+
+planner:
+  type: single_shot
+  steering: closed_loop        # or "open_loop" for baseline
+
+# Override defaults for this scenario
+optimizer:
+  max_iters: 500
+  lr_v: 0.05
+  lr_k: 0.005
