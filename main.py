@@ -40,11 +40,11 @@ with skip_run("skip", "Obstacle Field") as check, check():
 
 
 # ── 3. Lane Change MPC ───────────────────────────────────────────────
-with skip_run("run", "Lane Change MPC") as check, check():
+with skip_run("skip", "Lane Change MPC") as check, check():
     result, env, cfg = run_scenario("configs/scenarios/lane_change.yaml")
     print(f"  Lane change done. P(φ) = {result.best_p:.4f}")
 
 
 # ── 4. Double Slit: primary test scenario (matches Okamoto 2019 Fig 2) ─
-with skip_run("skip", "Double Slit — Open-Loop vs Cov Steering") as check, check():
+with skip_run("run", "Double Slit — Open-Loop vs Cov Steering") as check, check():
     run_comparison("configs/scenarios/double_slit.yaml")

@@ -105,16 +105,5 @@ class BasePlanner:
 
     @abstractmethod
     def solve(self, mu0, Sigma0, spec=None, init_V=None, verbose=True):
-        """Find optimal (V, K).
-
-        Args:
-            mu0:    [nx] initial mean
-            Sigma0: [nx, nx] initial covariance
-            spec:   STL_Formula (defaults to env.get_specification)
-            init_V: optional warm-start [T, nu]
-            verbose: print progress
-
-        Returns:
-            PlanResult
-        """
+        """Find optimal (V, K). Returns PlanResult."""
         ...

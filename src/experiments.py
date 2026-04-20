@@ -62,11 +62,38 @@ def run_scenario(scenario_path, verbose=True):
     return result, env, cfg
 
 
+def _mode_cfg(base_cfg, mode):
+    """Merge a per-mode YAML section (open_loop or closed_loop) into the base config.
+
+    Scenario YAML can contain an optional top-level key matching *mode* with
+    'weights' and/or 'optimizer' subsections that override the base values:
+
+        open_loop:
+          weights:
+            w_du: 0.2       # allow sharper bends
+            w_repulsion: 0.5
+          optimizer:
+            lr_v: 0.06
+
+    Keys not present in the mode section fall back to the base config.
+    The mode section itself is stripped so the returned config is clean.
+    """
+    overrides = base_cfg.get(mode, {})
+    # strip both mode sections before copying so they don't pollute the result
+    result = {k: v for k, v in base_cfg.items() if k not in ("open_loop", "closed_loop")}
+    if "weights" in overrides:
+        result["weights"] = {**result.get("weights", {}), **overrides["weights"]}
+    if "optimizer" in overrides:
+        result["optimizer"] = {**result.get("optimizer", {}), **overrides["optimizer"]}
+    return result
+
+
 def run_comparison(scenario_path):
     """Run open-loop vs closed-loop on the same scenario.
 
-    All options (save_dir, animate, dt) are read from the merged config YAML.
-    Toggle them in configs/defaults.yaml or in the scenario's own YAML.
+    Each mode can have its own weight/optimizer overrides via top-level
+    'open_loop:' and 'closed_loop:' sections in the scenario YAML.
+    Keys not overridden fall back to the shared base config.
 
     Returns:
         (result_ol, result_cl)
@@ -88,14 +115,16 @@ def run_comparison(scenario_path):
     # ── Open-loop baseline (K ≡ 0) ──────────────────────────────────
     print("\n── Open-Loop (K ≡ 0) ──")
     steerer_ol = get_steerer("open_loop", dynamics)
-    cfg_ol = {**cfg, "optimizer": {**cfg["optimizer"], "lr_k": 0.0}}
+    cfg_ol = _mode_cfg(cfg, "open_loop")
+    cfg_ol["optimizer"] = {**cfg_ol["optimizer"], "lr_k": 0.0}  # K never updated
     planner_ol = SingleShotPlanner(dynamics, steerer_ol, env, cfg_ol)
     result_ol = planner_ol.solve(mu0, Sigma0, T=T, verbose=True)
 
     # ── Closed-loop covariance steering ─────────────────────────────
     print("\n── Closed-Loop (K optimised) ──")
     steerer_cl = get_steerer("closed_loop", dynamics)
-    planner_cl = SingleShotPlanner(dynamics, steerer_cl, env, cfg)
+    cfg_cl = _mode_cfg(cfg, "closed_loop")
+    planner_cl = SingleShotPlanner(dynamics, steerer_cl, env, cfg_cl)
     result_cl = planner_cl.solve(mu0, Sigma0, T=T, verbose=True)
 
     # ── Summary ──────────────────────────────────────────────────────

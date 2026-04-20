@@ -8,9 +8,7 @@ optimizer:
   lr_v: 0.05
   lr_k: 0.005
   max_iters: 500
-  converge_patience: 20  # stop if no improvement in this many iterations
-  loss_tol: 1.0e-6
-  min_iters: 50
+  converge_patience: 20
 
 weights:
   w_phi: 1.0             # (1) pdSTL satisfaction: -log(p_sat)

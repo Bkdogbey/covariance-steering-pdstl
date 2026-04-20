@@ -1,28 +1,13 @@
 """Shared loss computation for all planner types.
 
-J = w_phi           * L_phi                   (1) pdSTL: -log(p_sat)
-  + w_trace         * sum_k tr(Σ_k[:2,:2])    (2) trajectory covariance trace
-  + w_trace_terminal * tr(Σ_T[:2,:2])         (3) terminal covariance trace
-  + w_dist          * ||μ_T - goal||²          (4) terminal goal distance
-  + w_u             * ||u||²                   (5) control effort
-  + w_du            * ||Δu||²                  (6) control smoothness
-  + w_K             * ||K||²_F                 (7) feedback gain regularization
-  + w_repulsion     * Σ ReLU(margin - dist)²   (8) obstacle repulsion
-
-Note on trace vs K-regularization:
-  loss_trace / loss_trace_terminal measure ACTUAL uncertainty (tr(Σ)).
-  They directly penalize distribution spread and are the theoretically
-  principled uncertainty-reduction objectives (cf. eq. 17 in Okamoto 2019,
-  the tr(...ΣY) term). loss_K penalizes gain magnitude as a regularizer to
-  prevent degenerate K solutions — it is NOT an uncertainty measure.
-  Both are needed: trace terms for the learning signal, K-reg for stability.
-
-Obstacle repulsion uses ReLU(margin - dist)^2 — zero gradient when the
-trajectory is farther than obs_margin from an obstacle, quadratic penalty
-when inside the margin or penetrating. This provides a smooth directional
-gradient even when the trajectory is deep inside an obstacle, preventing
-the planner from getting stuck when the STL term alone has vanishing gradient.
-Rectangle distances use the exact signed distance field (SDF).
+J = w_phi            * -log(p_sat)               (1) pdSTL satisfaction
+  + w_trace          * sum_k tr(Σ_k[:2,:2])       (2) covariance trace
+  + w_trace_terminal * tr(Σ_T[:2,:2])             (3) terminal covariance
+  + w_dist           * ||μ_T - goal||²             (4) goal distance
+  + w_u              * ||u||²                      (5) control effort
+  + w_du             * ||Δu||²                     (6) smoothness
+  + w_K              * ||K||²_F                    (7) gain regularization
+  + w_repulsion      * Σ ReLU(margin - dist)²      (8) obstacle repulsion
 """
 
 import torch
@@ -56,36 +41,21 @@ def _circle_repulsion(pts, obs, margin, device):
 
 
 def compute_loss(p_sat, V, K, mu_trace, Sigma_trace, env, dyn, weights):
-    """Compute the total scalar objective.
+    """Return scalar loss J (differentiable).
 
-    Args:
-        p_sat:        scalar tensor — SRM(φ, B) at t=0
-        V:            [T, nu]          unconstrained feedforward params
-        K:            [T, nu, nx]      feedback gains
-        mu_trace:     [1, T+1, nx]     mean trajectory
-        Sigma_trace:  [1, T+1, nx, nx] covariance trajectory
-        env:          Environment — for goal center
-        dyn:          BaseDynamics    — for bound_control
-        weights:      dict with all w_* keys
-
-    Returns:
-        J: scalar tensor (differentiable)
+    p_sat: [1] — pdSTL satisfaction probability at t=0
+    V:     [T, nu],        K: [T, nu, nx]
+    mu_trace: [1, T+1, nx], Sigma_trace: [1, T+1, nx, nx]
     """
     w = weights
     device = V.device
 
-    # ── (1) pdSTL satisfaction ───────────────────────────────────────
     loss_phi = -torch.log(p_sat + 1e-4)
 
-    # ── (2) Trajectory covariance trace ─────────────────────────────
-    # Vectorized: tr(Σ_k[:2,:2]) = Σ[0,k,0,0] + Σ[0,k,1,1]  (position block)
-    # Sum over t=1..T (exclude t=0 initial condition)
+    # position-block trace: tr(Σ_k[:2,:2]) = Σ[0,0] + Σ[1,1], summed t=1..T
     loss_trace = (Sigma_trace[0, 1:, 0, 0] + Sigma_trace[0, 1:, 1, 1]).sum()
-
-    # ── (3) Terminal covariance trace ────────────────────────────────
     loss_trace_terminal = Sigma_trace[0, -1, 0, 0] + Sigma_trace[0, -1, 1, 1]
 
-    # ── (4) Terminal distance to goal ────────────────────────────────
     loss_dist = torch.tensor(0.0, device=device)
     if env.goal is not None:
         gx = (env.goal["x"][0] + env.goal["x"][1]) / 2.0
@@ -93,20 +63,11 @@ def compute_loss(p_sat, V, K, mu_trace, Sigma_trace, env, dyn, weights):
         goal_xy = torch.tensor([gx, gy], device=device)
         loss_dist = torch.sum((mu_trace[0, -1, :2] - goal_xy) ** 2)
 
-    # ── (5) Control effort ───────────────────────────────────────────
     u_seq = dyn.bound_control(V)
     loss_u = torch.sum(u_seq ** 2)
-
-    # ── (6) Control smoothness ───────────────────────────────────────
-    u_diff = u_seq[1:] - u_seq[:-1]
-    loss_du = torch.sum(u_diff ** 2) + torch.sum(u_seq[0] ** 2)
-
-    # ── (7) Feedback gain regularization ────────────────────────────
+    loss_du = torch.sum((u_seq[1:] - u_seq[:-1]) ** 2) + torch.sum(u_seq[0] ** 2)
     loss_K = torch.sum(K ** 2)
 
-    # ── (8) Obstacle Repulsion ───────────────────────────────────────
-    # ReLU(margin - dist)^2 gives nonzero gradient even when the trajectory
-    # penetrates an obstacle, preventing the planner from getting stuck.
     loss_repulsion = torch.tensor(0.0, device=device)
     obs_margin = float(w.get("obs_margin", 0.5))
     for obs in env.obstacles:
@@ -115,12 +76,12 @@ def compute_loss(p_sat, V, K, mu_trace, Sigma_trace, env, dyn, weights):
         loss_repulsion += _circle_repulsion(mu_trace[0], obs, obs_margin, device)
 
     return (
-        float(w.get("w_phi", 1.0))              * loss_phi
-        + float(w.get("w_trace", 0.0))          * loss_trace
-        + float(w.get("w_trace_terminal", 0.0)) * loss_trace_terminal
-        + float(w.get("w_dist", 0.0))           * loss_dist
-        + float(w.get("w_u", 0.0))              * loss_u
-        + float(w.get("w_du", 0.0))             * loss_du
-        + float(w.get("w_K", 0.0))              * loss_K
-        + float(w.get("w_repulsion", 0.0))      * loss_repulsion
+        float(w.get("w_phi",            1.0)) * loss_phi
+        + float(w.get("w_trace",        0.0)) * loss_trace
+        + float(w.get("w_trace_terminal",0.0)) * loss_trace_terminal
+        + float(w.get("w_dist",         0.0)) * loss_dist
+        + float(w.get("w_u",            0.0)) * loss_u
+        + float(w.get("w_du",           0.0)) * loss_du
+        + float(w.get("w_K",            0.0)) * loss_K
+        + float(w.get("w_repulsion",    0.0)) * loss_repulsion
     )
