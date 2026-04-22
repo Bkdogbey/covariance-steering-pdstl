@@ -2,3 +2,4 @@ from visualization.trajectory import plot_trajectory, draw_env, cov_ellipse_para
 from visualization.convergence import plot_convergence
 from visualization.comparison import plot_comparison
 from visualization.animation import animate_trajectory
+from visualization.monte_carlo import plot_mc_verification

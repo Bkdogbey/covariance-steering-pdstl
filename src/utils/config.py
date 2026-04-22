@@ -50,7 +50,7 @@ def load_config(path) -> dict:
     p = Path(path)
     if not p.is_absolute():
         p = _ROOT / p
-    with open(p) as f:
+    with open(p, encoding='utf-8') as f:
         return yaml.safe_load(f)
 
 

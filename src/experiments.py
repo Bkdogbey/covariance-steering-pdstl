@@ -58,9 +58,20 @@ def run_scenario(scenario_path, verbose=True):
     return result, env, cfg
 
 
-def run_scenario_plot(scenario_path, verbose=True):
-    """Run a single scenario and save/show a trajectory plot."""
-    result, env, cfg = run_scenario(scenario_path, verbose=verbose)
+def run_scenario_plot(scenario_path, verbose=True, mc_samples=0):
+    """Run a single scenario and save/show a trajectory plot.
+
+    Args:
+        scenario_path: path to scenario YAML
+        verbose:       print optimisation progress
+        mc_samples:    if > 0, run Monte Carlo verification with this many samples
+    """
+    cfg, dyn_cfg, dynamics, steerer, env, mu0, Sigma0 = setup_scenario(scenario_path)
+    device = torch.device(cfg["device"])
+    T = cfg["horizon"]
+    planner = get_planner(cfg, dynamics, steerer, env)
+    result = planner.solve(mu0, Sigma0, verbose=verbose)
+
     save_dir = cfg.get("save_dir", "data/results")
     label = cfg.get("label", "scenario").lower().replace(" ", "_")
     os.makedirs(save_dir, exist_ok=True)
@@ -69,12 +80,16 @@ def run_scenario_plot(scenario_path, verbose=True):
     S_np = result.Sigma_trace.detach().cpu().squeeze().numpy()
 
     fig, ax = plt.subplots(figsize=(10, 10))
-    plot_trajectory(ax, mu_np, S_np, env, cfg["horizon"],
+    plot_trajectory(ax, mu_np, S_np, env, T,
                     title=f"{cfg.get('label', 'Scenario')}  |  P(φ)={result.best_p:.3f}")
     plt.tight_layout()
-    save_path = os.path.join(save_dir, f"{label}_trajectory.png")
-    fig.savefig(save_path, dpi=150)
+    fig.savefig(os.path.join(save_dir, f"{label}_trajectory.png"), dpi=150)
     plt.show()
+
+    if mc_samples > 0:
+        _run_mc_and_plot(result, dynamics, env, cfg, mu0, Sigma0, T,
+                         mc_samples, save_dir, label, device)
+
     return result, env, cfg
 
 
@@ -104,12 +119,39 @@ def _mode_cfg(base_cfg, mode):
     return result
 
 
-def run_comparison(scenario_path):
+def _run_mc_and_plot(result, dynamics, env, cfg, mu0, Sigma0, T,
+                     mc_samples, save_dir, label, device, suffix=""):
+    """Internal helper: run MC verification and save plot."""
+    from monte_carlo import mc_verify
+    from visualization.monte_carlo import plot_mc_verification
+
+    spec = env.get_specification(T)
+    print(f"\n── Monte Carlo Verification (N={mc_samples}) ──")
+    mc_result = mc_verify(result, dynamics, spec, mu0, Sigma0,
+                          n_samples=mc_samples, device=str(device))
+    n_ok = int(mc_result["successes"].sum())
+    print(f"  Analytic  P(φ) = {mc_result['p_analytic']:.4f}")
+    print(f"  Empirical P̂(φ) = {mc_result['p_empirical']:.4f}"
+          f"  ({n_ok}/{mc_samples} samples satisfied)")
+
+    fig = plot_mc_verification(
+        mc_result, env, cfg, result,
+        save_path=os.path.join(save_dir, f"{label}{suffix}_mc_verification.png"),
+    )
+    plt.show()
+    return mc_result
+
+
+def run_comparison(scenario_path, mc_samples=0):
     """Run open-loop vs closed-loop on the same scenario.
 
     Each mode can have its own weight/optimizer overrides via top-level
     'open_loop:' and 'closed_loop:' sections in the scenario YAML.
     Keys not overridden fall back to the shared base config.
+
+    Args:
+        scenario_path: path to scenario YAML
+        mc_samples:    if > 0, run Monte Carlo verification on both results
 
     Returns:
         (result_ol, result_cl)
@@ -188,5 +230,14 @@ def run_comparison(scenario_path):
         gif_path = os.path.join(save_dir, f"{label}.gif")
         print(f"  Saving animation → {gif_path}")
         animate_trajectory(result_cl, env, filename=gif_path, dt=dt)
+
+    # Monte Carlo verification (opt-in via mc_samples > 0)
+    if mc_samples > 0:
+        print("\n── Open-Loop MC ──")
+        _run_mc_and_plot(result_ol, dynamics, env, cfg, mu0, Sigma0, T,
+                         mc_samples, save_dir, label, device, suffix="_open_loop")
+        print("\n── Closed-Loop MC ──")
+        _run_mc_and_plot(result_cl, dynamics, env, cfg, mu0, Sigma0, T,
+                         mc_samples, save_dir, label, device, suffix="_closed_loop")
 
     return result_ol, result_cl
