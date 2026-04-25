@@ -26,6 +26,7 @@ from visualization import (
     plot_control_sequence,
     animate_trajectory,
     plot_covariance_sweep,
+    plot_joint_noise_sweep,
 )
 
 
@@ -87,6 +88,111 @@ def run_scenario_plot(scenario_path, verbose=True, mc_samples=0):
     plt.tight_layout()
     fig.savefig(save_dir / f"{label}_trajectory.png", dpi=150)
     plt.show()
+
+    if mc_samples > 0:
+        _run_mc_and_plot(result, dynamics, env, cfg, mu0, Sigma0, T,
+                         mc_samples, save_dir, label, device)
+
+    return result, env, cfg
+
+
+def _setup_mpc_live_plot(env, cfg):
+    """Two-panel live figure: map (executed path + planned window) + P(sat) per step."""
+    import matplotlib.patches as patches
+
+    plt.ion()
+    fig = plt.figure(figsize=(14, 6))
+    gs = fig.add_gridspec(1, 2, width_ratios=[1.5, 1])
+    ax_map = fig.add_subplot(gs[0])
+    ax_p = fig.add_subplot(gs[1])
+
+    if env.bounds:
+        ax_map.set_xlim(env.bounds["x"][0] - 0.5, env.bounds["x"][1] + 0.5)
+        ax_map.set_ylim(env.bounds["y"][0] - 0.5, env.bounds["y"][1] + 0.5)
+    ax_map.set_aspect("equal")
+    ax_map.grid(True, alpha=0.3)
+    ax_map.set_title(f"MPC Live — {cfg.get('label', '')}", fontsize=12)
+
+    from visualization import draw_env
+    draw_env(ax_map, env)
+
+    line_exec, = ax_map.plot([], [], "b-o", ms=4, lw=1.5, label="Executed path")
+    line_plan, = ax_map.plot([], [], "--", color="#ff7f0e", lw=2, alpha=0.8, label="Planned window")
+    ax_map.legend(loc="upper left", fontsize=9)
+
+    ax_p.set_xlim(0, max(10, cfg.get("horizon", 30)))
+    ax_p.set_ylim(0, 1.1)
+    ax_p.set_title("Window P(φ) per step", fontsize=12)
+    ax_p.set_xlabel("MPC step")
+    ax_p.set_ylabel("P(φ)")
+    ax_p.axhline(0.95, color="gray", ls="--", lw=1, alpha=0.5)
+    ax_p.grid(True, alpha=0.3)
+    line_p, = ax_p.plot([], [], color="#2ca02c", marker="o", ms=3)
+
+    return fig, ax_map, ax_p, line_exec, line_plan, line_p
+
+
+def run_mpc_scenario(scenario_path, verbose=True, mc_samples=0):
+    """Run the receding-horizon MPC planner with a live two-panel visualization.
+
+    Shows executed path + sliding window plan on the left, and per-step P(φ)
+    on the right — updated in real time during execution.  Saves a trajectory
+    PNG and an animated GIF (with sliding-window dashes) when done.
+
+    Args:
+        scenario_path: path to scenario YAML (must have planner.type: receding_horizon)
+        verbose:       print MPC step progress
+        mc_samples:    if > 0, run Monte Carlo verification after planning
+    """
+    cfg, dyn_cfg, dynamics, steerer, env, mu0, Sigma0 = setup_scenario(scenario_path)
+    device = torch.device(cfg["device"])
+    T = cfg["horizon"]
+    dt = dyn_cfg.get("dt", 0.2)
+
+    planner = get_planner(cfg, dynamics, steerer, env)
+
+    save_dir = Path(cfg.get("save_dir", "data/results"))
+    save_dir.mkdir(parents=True, exist_ok=True)
+    label = cfg.get("label", "mpc_scenario").lower().replace(" ", "_")
+
+    # Live two-panel figure
+    fig_live, ax_map, ax_p, line_exec, line_plan, line_p = _setup_mpc_live_plot(env, cfg)
+
+    def _on_step(t, mu_list, plan_traces, p_history):
+        path = np.array([[m[0].item(), m[1].item()] for m in mu_list])
+        line_exec.set_data(path[:, 0], path[:, 1])
+
+        if plan_traces:
+            plan_np = plan_traces[-1].cpu().squeeze(0).numpy()
+            line_plan.set_data(plan_np[:, 0], plan_np[:, 1])
+
+        line_p.set_data(range(len(p_history)), p_history)
+        ax_p.set_xlim(0, max(len(p_history) + 5, 10))
+        plt.pause(0.05)
+
+    result = planner.solve(mu0, Sigma0, verbose=verbose, step_callback=_on_step)
+
+    plt.ioff()
+    plt.close(fig_live)
+
+    # Static trajectory plot
+    mu_np = result.mu_trace.detach().cpu().squeeze().numpy()
+    S_np = result.Sigma_trace.detach().cpu().squeeze().numpy()
+
+    fig, ax = plt.subplots(figsize=(10, 8))
+    plot_trajectory(ax, mu_np, S_np, env, T,
+                    title=f"{cfg.get('label', 'MPC')}  |  P(φ)={result.best_p:.3f}")
+    plt.tight_layout()
+    fig.savefig(save_dir / f"{label}_mpc_trajectory.png", dpi=150)
+    plt.show()
+
+    # Animation with sliding window
+    if cfg.get("animate", False):
+        gif_path = save_dir / f"{label}_mpc.gif"
+        print(f"  Saving MPC animation → {gif_path}")
+        from visualization import animate_trajectory
+        animate_trajectory(result, env, filename=str(gif_path), dt=dt,
+                           plan_traces=result.plan_traces)
 
     if mc_samples > 0:
         _run_mc_and_plot(result, dynamics, env, cfg, mu0, Sigma0, T,
@@ -325,7 +431,9 @@ def run_covariance_sweep(
         print(f"  σ₀={sigma:.4f} ...", end=" ", flush=True)
 
         cfg = copy.deepcopy(base_cfg)
-        cfg["initial_state"]["cov_diag"] = [var] * n_state
+        # Only vary position uncertainty (first 2 dims); keep velocity variance from base config
+        base_vel_cov = base_cfg["initial_state"]["cov_diag"][2:]
+        cfg["initial_state"]["cov_diag"] = [var, var] + list(base_vel_cov)
 
         init = cfg["initial_state"]
         mu0 = torch.tensor(init["mean"], dtype=torch.float32, device=device)
@@ -370,3 +478,62 @@ def run_covariance_sweep(
     print(f"\n  Saved → {save_dir / f'{stem}_covariance_sweep.png'}")
 
     return sigma0_rows, D_rows
+
+
+def run_joint_noise_sweep(
+    scenario_path,
+    noise_levels=None,
+    mc_samples=1000,
+    max_iters_sweep=800,
+):
+    """Sweep a single noise level v that sets both σ₀² and D simultaneously.
+
+    For each v in noise_levels:
+      - initial position variance = v  (cov_diag[:2] = [v, v])
+      - process noise D_diag = v
+    Runs OL vs CL at each level. Produces a single P(φ) vs v plot.
+
+    Args:
+        scenario_path:   path to scenario YAML
+        noise_levels:    list of v values (variance = std for process noise)
+        mc_samples:      MC samples per point (0 to skip)
+        max_iters_sweep: optimizer iterations per point
+    """
+    if noise_levels is None:
+        noise_levels = [0.0001, 0.001, 0.01, 0.1, 0.5]
+
+    base_cfg, base_dyn_cfg = load_scenario(scenario_path)
+    device = torch.device(base_cfg["device"])
+    T = base_cfg["horizon"]
+    save_dir = Path(base_cfg.get("save_dir", "data/results"))
+    label = base_cfg.get("label", "sweep")
+    vel_cov = list(base_cfg["initial_state"]["cov_diag"][2:])
+
+    print(f"\n── Joint noise sweep ({len(noise_levels)} points) ──")
+    rows = []
+    for v in noise_levels:
+        print(f"  v={v:.4f} ...", end=" ", flush=True)
+
+        cfg = copy.deepcopy(base_cfg)
+        dyn_cfg = copy.deepcopy(base_dyn_cfg)
+
+        cfg["initial_state"]["cov_diag"] = [v, v] + vel_cov
+        dyn_cfg["D_diag"] = v
+
+        mu0 = torch.tensor(cfg["initial_state"]["mean"], dtype=torch.float32, device=device)
+        Sigma0 = torch.diag(torch.tensor(cfg["initial_state"]["cov_diag"], dtype=torch.float32, device=device))
+
+        row = _sweep_one_point(dyn_cfg, cfg, mu0, Sigma0, T, device, max_iters_sweep, mc_samples)
+        row["noise_level"] = v
+        rows.append(row)
+        print(f"OL={row['p_ol_analytic']:.3f}  CL={row['p_cl_analytic']:.3f}"
+              + (f"  MC-OL={row['p_ol_mc']:.3f}  MC-CL={row['p_cl_mc']:.3f}"
+                 if mc_samples > 0 else ""))
+
+    save_dir.mkdir(parents=True, exist_ok=True)
+    fig = plot_joint_noise_sweep(rows, label, save_dir)
+    plt.show()
+    stem = label.lower().replace(" ", "_")
+    print(f"\n  Saved → {save_dir / f'{stem}_joint_noise_sweep.png'}")
+
+    return rows

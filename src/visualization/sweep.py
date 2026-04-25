@@ -1,4 +1,8 @@
-"""Covariance sweep plots: P(φ) vs σ₀ and P(φ) vs D for OL vs CL."""
+"""Covariance sweep plots: P(φ) vs σ₀ and P(φ) vs D for OL vs CL.
+
+Also provides plot_joint_noise_sweep for the paired diagonal sweep
+where σ₀² = D = v is swept as a single noise level.
+"""
 
 import csv
 from pathlib import Path
@@ -106,3 +110,69 @@ def _export_csv(sigma0_rows, D_rows, save_dir, label):
                 "p_ol_mc": r.get("p_ol_mc", ""),
                 "p_cl_mc": r.get("p_cl_mc", ""),
             })
+
+
+def plot_joint_noise_sweep(rows, label, save_dir):
+    """Plot P(φ) vs a single noise level v where σ₀² = D = v.
+
+    Args:
+        rows:     list of dicts with keys: noise_level, p_ol_analytic,
+                  p_cl_analytic, p_ol_mc (or None), p_cl_mc (or None)
+        label:    scenario label string
+        save_dir: Path to output directory
+
+    Returns:
+        matplotlib Figure
+    """
+    Path(save_dir).mkdir(parents=True, exist_ok=True)
+
+    fig, ax = plt.subplots(figsize=(8, 5))
+
+    xs = np.array([r["noise_level"] for r in rows])
+    p_ol_a = np.array([r["p_ol_analytic"] for r in rows])
+    p_cl_a = np.array([r["p_cl_analytic"] for r in rows])
+
+    ax.plot(xs, p_ol_a, color="#1f77b4", lw=2, label="Open-loop analytic")
+    ax.plot(xs, p_cl_a, color="#d62728", lw=2, label="Cov-steering analytic")
+
+    has_mc = rows[0].get("p_ol_mc") is not None
+    if has_mc:
+        p_ol_mc = np.array([r["p_ol_mc"] for r in rows])
+        p_cl_mc = np.array([r["p_cl_mc"] for r in rows])
+        ax.plot(xs, p_ol_mc, color="#1f77b4", lw=1.5, ls="--",
+                marker="o", ms=5, label="Open-loop empirical (MC)")
+        ax.plot(xs, p_cl_mc, color="#d62728", lw=1.5, ls="--",
+                marker="s", ms=5, label="Cov-steering empirical (MC)")
+        ax.fill_between(xs, p_ol_a, p_ol_mc, alpha=0.10, color="#1f77b4")
+        ax.fill_between(xs, p_cl_a, p_cl_mc, alpha=0.10, color="#d62728")
+
+    ax.axhline(0.95, color="gray", lw=1, ls=":", alpha=0.7, label="α = 0.95")
+    ax.set_xscale("log")
+    ax.set_ylim(-0.05, 1.05)
+    ax.set_xlabel("Noise level  v  (σ₀² = D = v)", fontsize=11)
+    ax.set_ylabel("P(φ)", fontsize=11)
+    ax.set_title(f"{label} — Joint Noise Sweep", fontsize=13, fontweight="bold")
+    ax.legend(fontsize=9)
+    ax.grid(True, alpha=0.3)
+
+    plt.tight_layout()
+
+    stem = label.lower().replace(" ", "_")
+    png_path = Path(save_dir) / f"{stem}_joint_noise_sweep.png"
+    fig.savefig(png_path, dpi=150, bbox_inches="tight")
+
+    csv_path = Path(save_dir) / f"{stem}_joint_noise_sweep.csv"
+    with open(csv_path, "w", newline="") as f:
+        writer = csv.DictWriter(
+            f, fieldnames=["value", "p_ol_analytic", "p_cl_analytic", "p_ol_mc", "p_cl_mc"])
+        writer.writeheader()
+        for r in rows:
+            writer.writerow({
+                "value": r["noise_level"],
+                "p_ol_analytic": r["p_ol_analytic"],
+                "p_cl_analytic": r["p_cl_analytic"],
+                "p_ol_mc": r.get("p_ol_mc", ""),
+                "p_cl_mc": r.get("p_cl_mc", ""),
+            })
+
+    return fig

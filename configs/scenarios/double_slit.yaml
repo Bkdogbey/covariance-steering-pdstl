@@ -47,7 +47,7 @@ obstacles:
 
 planner:
   type: single_shot
-  steering: closed_loop
+  steering: open_loop
 
 #mpc:
   #horizon: 15    # look-ahead window; must see past the wall (~10 steps away) to plan gaps
@@ -57,7 +57,7 @@ planner:
 # ── Shared base optimizer ────────────────────────────────────────────
 optimizer:
   max_iters: 1000
-  lr_v: 0.01
+  lr_v: 0.05
   lr_k: 0.05
 
 weights:
@@ -68,14 +68,14 @@ weights:
   w_u: 0.01
   w_K: 0.005
   w_du: 0.5
-  w_repulsion: 10         # strong enough to overpower goal-distance pull through the wall
-  obs_margin: 0.01         # wide gradient signal; at gap center (0.25m from each wall) repulsion balances → local min in gap
+  w_repulsion: 10
+  obs_margin: 0.4          # gap is 0.5m wide; margin of 0.4 means repulsion activates at gap center (0.25m from each wall), creating a local min in the gap
 
 # ── Open-loop overrides ──────────────────────────────────────────────
 
 open_loop:
   weights:
-    w_du: 5
+    w_du: 0.5
     w_repulsion: 2
 
 # ── Closed-loop overrides ───────────────────────────────────────────

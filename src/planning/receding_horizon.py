@@ -36,7 +36,8 @@ class RecedingHorizonPlanner(BasePlanner):
 
         return best_p, best_V, best_K, hist
 
-    def solve(self, mu0, Sigma0, T=None, spec=None, init_V=None, verbose=True):
+    def solve(self, mu0, Sigma0, T=None, spec=None, init_V=None, verbose=True,
+              step_callback=None):
         T = T or self.cfg["horizon"]
         mpc_cfg = self.cfg.get("mpc", {})
         H = mpc_cfg.get("horizon", min(10, T))
@@ -49,6 +50,7 @@ class RecedingHorizonPlanner(BasePlanner):
         K_list = []
         history = []
         p_history = []
+        plan_traces = []
 
         V_warm = None
 
@@ -73,6 +75,11 @@ class RecedingHorizonPlanner(BasePlanner):
                 if p_s > best_p_t:
                     best_p_t, best_V_t, best_K_t = p_s, V_s, K_s
 
+            # Save full h-step local plan trajectory for animation/live-plot
+            with torch.no_grad():
+                local = self.steerer(best_V_t, best_K_t, mu_cur, Sigma_cur)
+            plan_traces.append(local.mu_trace.detach())   # [1, h+1, nx]
+
             # Warm-start next step: drop the first entry, pad with zero at the end
             if h > 1:
                 pad = torch.zeros(1, self.dyn.nu, device=self.device)
@@ -84,15 +91,18 @@ class RecedingHorizonPlanner(BasePlanner):
             v0 = best_V_t[0:1]   # [1, nu]
             k0 = best_K_t[0:1]   # [1, nu, nx]
             with torch.no_grad():
-                step = self.steerer(v0, k0, mu_cur, Sigma_cur)
+                step_result = self.steerer(v0, k0, mu_cur, Sigma_cur)
 
             V_list.append(best_V_t[0])
             K_list.append(best_K_t[0])
-            mu_list.append(step.mu_trace[0, 1])
-            Sigma_list.append(step.Sigma_trace[0, 1])
+            mu_list.append(step_result.mu_trace[0, 1])
+            Sigma_list.append(step_result.Sigma_trace[0, 1])
 
             if verbose and t % 5 == 0:
                 print(f"  MPC step {t:3d}/{T} | local P(φ)={best_p_t:.4f}")
+
+            if step_callback is not None:
+                step_callback(t, mu_list, plan_traces, p_history)
 
         # Assemble full trajectory
         mu_trace = torch.stack(mu_list).unsqueeze(0)       # [1, T+1, nx]
@@ -117,4 +127,5 @@ class RecedingHorizonPlanner(BasePlanner):
             best_p=best_p,
             history=history,
             p_history=p_history,
+            plan_traces=plan_traces,
         )

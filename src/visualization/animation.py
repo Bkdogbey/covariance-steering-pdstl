@@ -8,19 +8,23 @@ from matplotlib.animation import FuncAnimation, PillowWriter, FFMpegWriter
 from visualization.trajectory import draw_env, cov_ellipse_params
 
 
-def animate_trajectory(result, env, filename="trajectory.gif", dt=0.2):
+def animate_trajectory(result, env, filename="trajectory.gif", dt=0.2,
+                       plan_traces=None):
     """Animate a PlanResult as a GIF or MP4.
 
     Each frame draws the current mean position and covariance ellipse; the
     last FADE_STEPS ellipses are kept at decreasing opacity to show history.
+    If plan_traces is provided (list of per-step local plan mu tensors), a
+    dashed orange line shows the MPC sliding-window lookahead each frame.
 
     Args:
-        result:   PlanResult — uses mu_trace [1, T+1, nx] and
-                               Sigma_trace [1, T+1, nx, nx]
-        env:      Environment object (obstacles, goal, bounds)
-        filename: output filename — ".gif" uses PillowWriter,
-                  ".mp4" uses FFMpegWriter (requires ffmpeg on PATH)
-        dt:       timestep in seconds (controls animation speed)
+        result:      PlanResult — uses mu_trace [1, T+1, nx] and
+                                  Sigma_trace [1, T+1, nx, nx]
+        env:         Environment object (obstacles, goal, bounds)
+        filename:    output filename — ".gif" uses PillowWriter,
+                     ".mp4" uses FFMpegWriter (requires ffmpeg on PATH)
+        dt:          timestep in seconds (controls animation speed)
+        plan_traces: optional list of T tensors [1, h+1, nx], one per MPC step
 
     Returns:
         anim: FuncAnimation object (keep a reference to prevent GC)
@@ -28,6 +32,11 @@ def animate_trajectory(result, env, filename="trajectory.gif", dt=0.2):
     mu_np = result.mu_trace.detach().cpu().squeeze(0).numpy()       # [T+1, nx]
     Sigma_np = result.Sigma_trace.detach().cpu().squeeze(0).numpy() # [T+1, nx, nx]
     T = mu_np.shape[0] - 1
+
+    # Pre-convert plan traces to numpy once
+    plans_np = None
+    if plan_traces:
+        plans_np = [pt.cpu().squeeze(0).numpy() for pt in plan_traces]  # list of [h+1, nx]
 
     fig, ax = plt.subplots(figsize=(9, 7))
     if env.bounds:
@@ -37,13 +46,19 @@ def animate_trajectory(result, env, filename="trajectory.gif", dt=0.2):
     ax.grid(True, alpha=0.3)
     ax.set_xlabel("x [m]", fontsize=12)
     ax.set_ylabel("y [m]", fontsize=12)
-    ax.set_title("Covariance Steering Trajectory", fontsize=13, fontweight="bold")
+    title = "MPC Covariance Steering" if plans_np else "Covariance Steering Trajectory"
+    ax.set_title(title, fontsize=13, fontweight="bold")
     draw_env(ax, env)
 
     # Ghost trail of the full mean path (static, low opacity)
     ax.plot(mu_np[:, 0], mu_np[:, 1], "b-", lw=1, alpha=0.2, zorder=1)
 
     dot, = ax.plot([], [], "bo", ms=9, zorder=5)
+    trail, = ax.plot([], [], "b-", lw=1.5, alpha=0.7, zorder=2)
+    plan_line, = ax.plot([], [], "--", color="#ff7f0e", lw=2.0, alpha=0.75, zorder=4,
+                         label="Planned window")
+    if plans_np:
+        ax.legend(loc="upper left", fontsize=10)
     time_text = ax.text(0.02, 0.95, "", transform=ax.transAxes,
                         fontsize=11, va="top")
 
@@ -54,8 +69,10 @@ def animate_trajectory(result, env, filename="trajectory.gif", dt=0.2):
 
     def init():
         dot.set_data([], [])
+        trail.set_data([], [])
+        plan_line.set_data([], [])
         time_text.set_text("")
-        return dot, time_text
+        return dot, trail, plan_line, time_text
 
     def update(frame):
         # Fade existing ellipses
@@ -78,8 +95,17 @@ def animate_trajectory(result, env, filename="trajectory.gif", dt=0.2):
         history_ellipses.append(ell)
 
         dot.set_data([mu_np[frame, 0]], [mu_np[frame, 1]])
+        trail.set_data(mu_np[:frame + 1, 0], mu_np[:frame + 1, 1])
         time_text.set_text(f"t = {frame * dt:.1f} s")
-        return [dot, time_text] + history_ellipses
+
+        # Sliding window plan line (MPC only)
+        if plans_np is not None and frame < len(plans_np):
+            plan = plans_np[frame]   # [h+1, nx]
+            plan_line.set_data(plan[:, 0], plan[:, 1])
+        else:
+            plan_line.set_data([], [])
+
+        return [dot, trail, plan_line, time_text] + history_ellipses
 
     interval_ms = max(50, int(dt * 1000))
     anim = FuncAnimation(

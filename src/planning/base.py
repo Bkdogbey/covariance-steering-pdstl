@@ -25,6 +25,7 @@ class PlanResult:
     best_p: float                   # best P(φ) achieved
     history: List[float] = field(default_factory=list)    # loss per iteration
     p_history: List[float] = field(default_factory=list)  # P(φ) per iteration
+    plan_traces: List = field(default_factory=list)       # MPC: [1, h+1, nx] per step
 
 
 class BasePlanner:
