@@ -33,13 +33,13 @@ class SingleShotPlanner(BasePlanner):
 
             if verbose and k % 50 == 0:
                 K_norm = K.data.norm().item()
-                print(f"  iter {k:4d} | loss={loss:.4f} | P(φ)={p_sat:.4f} | ||K||={K_norm:.3f}")
+                print(f"  iter {k:4d} | loss={loss:.4f} | P(phi)={p_sat:.4f} | ||K||={K_norm:.3f}")
 
             if best_p >= alpha:
                 converged_iters += 1
                 if converged_iters >= patience:
                     if verbose:
-                        print(f"  Converged at iter {k}, P(φ)={best_p:.4f}")
+                        print(f"  Converged at iter {k}, P(phi)={best_p:.4f}")
                     break
             else:
                 converged_iters = 0

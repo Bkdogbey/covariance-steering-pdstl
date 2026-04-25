@@ -19,7 +19,7 @@
 label: "Double Slit"
 dynamics: configs/dynamics/double_integrator.yaml
 
-horizon: 30
+horizon: 25
 animate: true
 
 initial_state:
@@ -47,7 +47,7 @@ obstacles:
 
 planner:
   type: single_shot
-  steering: open_loop
+  steering: closed_loop
 
 #mpc:
   #horizon: 15    # look-ahead window; must see past the wall (~10 steps away) to plan gaps
@@ -61,26 +61,22 @@ optimizer:
   lr_k: 0.05
 
 weights:
-  w_phi: 10.0             # must dominate smoothness so STL drives y-steering
-  w_trace: 0.02
+  w_phi: 10.0
   w_trace_terminal: 0.02
   w_dist: 0.1
-  w_u: 0.01
   w_K: 0.005
   w_du: 0.5
-  w_repulsion: 10
-  obs_margin: 0.4          # gap is 0.5m wide; margin of 0.4 means repulsion activates at gap center (0.25m from each wall), creating a local min in the gap
+  w_repulsion: 2.0
+  obs_margin: 0.1
 
 # ── Open-loop overrides ──────────────────────────────────────────────
 
 open_loop:
   weights:
-    w_du: 0.5
-    w_repulsion: 2
+    w_repulsion: 2.0
 
 # ── Closed-loop overrides ───────────────────────────────────────────
 
 closed_loop:
   weights:
-    w_du: 0.5
-    w_repulsion: 5
+    w_repulsion: 2.0

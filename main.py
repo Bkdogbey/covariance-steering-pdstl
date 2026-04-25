@@ -11,6 +11,10 @@ To run tests:
   make test-all    # full suite including gradient-flow tests
 """
 
+import sys
+import os
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
+
 from utils import skip_run
 from experiments import run_comparison, run_scenario_plot, run_joint_noise_sweep, run_mpc_scenario
 
@@ -21,8 +25,7 @@ with skip_run("run", "Narrow Gap — MPC Cov Steering") as check, check():
 
 # ── 1b. Narrow Gap: Open-Loop vs Single-Shot Comparison ──────────────
 with skip_run("skip", "Narrow Gap — Single-Shot Comparison") as check, check():
-    #run_scenario_plot("configs/scenarios/narrow_gap.yaml", mc_samples=500)
-    run_comparison("configs/scenarios/narrow_gap.yaml")
+    run_comparison("configs/scenarios/narrow_gap_single_shot.yaml")
 
 
 # ── 2. Obstacle Field ────────────────────────────────────────────────

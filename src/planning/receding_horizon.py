@@ -99,7 +99,7 @@ class RecedingHorizonPlanner(BasePlanner):
             Sigma_list.append(step_result.Sigma_trace[0, 1])
 
             if verbose and t % 5 == 0:
-                print(f"  MPC step {t:3d}/{T} | local P(φ)={best_p_t:.4f}")
+                print(f"  MPC step {t:3d}/{T} | local P(phi)={best_p_t:.4f}")
 
             if step_callback is not None:
                 step_callback(t, mu_list, plan_traces, p_history)
@@ -117,7 +117,7 @@ class RecedingHorizonPlanner(BasePlanner):
         best_p = stl_trace[0, 0, 0].item()
 
         if verbose:
-            print(f"  MPC done | global P(φ)={best_p:.4f}")
+            print(f"  MPC done | global P(phi)={best_p:.4f}")
 
         return PlanResult(
             mu_trace=mu_trace.detach(),

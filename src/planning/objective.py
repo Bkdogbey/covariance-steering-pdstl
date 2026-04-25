@@ -1,13 +1,11 @@
 """Shared loss computation for all planner types.
 
 J = w_phi            * -log(p_sat)               (1) pdSTL satisfaction
-  + w_trace          * sum_k tr(Σ_k[:2,:2])       (2) covariance trace
-  + w_trace_terminal * tr(Σ_T[:2,:2])             (3) terminal covariance
-  + w_dist           * ||μ_T - goal||²             (4) goal distance
-  + w_u              * ||u||²                      (5) control effort
-  + w_du             * ||Δu||²                     (6) smoothness
-  + w_K              * ||K||²_F                    (7) gain regularization
-  + w_repulsion      * Σ ReLU(margin - dist)²      (8) obstacle repulsion
+  + w_trace_terminal * tr(Σ_T[:2,:2])             (2) terminal covariance
+  + w_dist           * ||μ_T - goal||²             (3) goal distance
+  + w_du             * ||Δu||²                     (4) control smoothness
+  + w_K              * ||K||²_F                    (5) gain regularization
+  + w_repulsion      * Σ ReLU(margin - dist)²      (6) obstacle repulsion
 """
 
 import torch
@@ -52,8 +50,6 @@ def compute_loss(p_sat, V, K, mu_trace, Sigma_trace, env, dyn, weights):
 
     loss_phi = -torch.log(p_sat + 1e-4)
 
-    # position-block trace: tr(Σ_k[:2,:2]) = Σ[0,0] + Σ[1,1], summed t=1..T
-    loss_trace = (Sigma_trace[0, 1:, 0, 0] + Sigma_trace[0, 1:, 1, 1]).sum()
     loss_trace_terminal = Sigma_trace[0, -1, 0, 0] + Sigma_trace[0, -1, 1, 1]
 
     loss_dist = torch.tensor(0.0, device=device)
@@ -64,7 +60,6 @@ def compute_loss(p_sat, V, K, mu_trace, Sigma_trace, env, dyn, weights):
         loss_dist = torch.sum((mu_trace[0, -1, :2] - goal_xy) ** 2)
 
     u_seq = dyn.bound_control(V)
-    loss_u = torch.sum(u_seq ** 2)
     loss_du = torch.sum((u_seq[1:] - u_seq[:-1]) ** 2) + torch.sum(u_seq[0] ** 2)
     loss_K = torch.sum(K ** 2)
 
@@ -76,12 +71,10 @@ def compute_loss(p_sat, V, K, mu_trace, Sigma_trace, env, dyn, weights):
         loss_repulsion += _circle_repulsion(mu_trace[0], obs, obs_margin, device)
 
     return (
-        float(w.get("w_phi",            1.0)) * loss_phi
-        + float(w.get("w_trace",        0.0)) * loss_trace
-        + float(w.get("w_trace_terminal",0.0)) * loss_trace_terminal
-        + float(w.get("w_dist",         0.0)) * loss_dist
-        + float(w.get("w_u",            0.0)) * loss_u
-        + float(w.get("w_du",           0.0)) * loss_du
-        + float(w.get("w_K",            0.0)) * loss_K
-        + float(w.get("w_repulsion",    0.0)) * loss_repulsion
+        float(w.get("w_phi",             1.0)) * loss_phi
+        + float(w.get("w_trace_terminal", 0.0)) * loss_trace_terminal
+        + float(w.get("w_dist",           0.0)) * loss_dist
+        + float(w.get("w_du",             0.0)) * loss_du
+        + float(w.get("w_K",              0.0)) * loss_K
+        + float(w.get("w_repulsion",      0.0)) * loss_repulsion
     )

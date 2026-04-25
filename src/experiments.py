@@ -189,7 +189,7 @@ def run_mpc_scenario(scenario_path, verbose=True, mc_samples=0):
     # Animation with sliding window
     if cfg.get("animate", False):
         gif_path = save_dir / f"{label}_mpc.gif"
-        print(f"  Saving MPC animation → {gif_path}")
+        print(f"  Saving MPC animation -> {gif_path}")
         from visualization import animate_trajectory
         animate_trajectory(result, env, filename=str(gif_path), dt=dt,
                            plan_traces=result.plan_traces)
@@ -234,12 +234,12 @@ def _run_mc_and_plot(result, dynamics, env, cfg, mu0, Sigma0, T,
     from visualization.monte_carlo import plot_mc_verification
 
     spec = env.get_specification(T)
-    print(f"\n── Monte Carlo Verification (N={mc_samples}) ──")
+    print(f"\n-- Monte Carlo Verification (N={mc_samples}) --")
     mc_result = mc_verify(result, dynamics, spec, mu0, Sigma0,
                           n_samples=mc_samples, device=str(device))
     n_ok = int(mc_result["successes"].sum())
-    print(f"  Analytic  P(φ) = {mc_result['p_analytic']:.4f}")
-    print(f"  Empirical P̂(φ) = {mc_result['p_empirical']:.4f}"
+    print(f"  Analytic  P(phi) = {mc_result['p_analytic']:.4f}")
+    print(f"  Empirical P_hat(phi) = {mc_result['p_empirical']:.4f}"
           f"  ({n_ok}/{mc_samples} samples satisfied)")
 
     fig = plot_mc_verification(
@@ -279,7 +279,7 @@ def run_comparison(scenario_path, mc_samples=0):
     Sigma0 = torch.diag(torch.tensor(init["cov_diag"], dtype=torch.float32, device=device))
 
     # ── Open-loop baseline (K ≡ 0) ──────────────────────────────────
-    print("\n── Open-Loop (K ≡ 0) ──")
+    print("\n-- Open-Loop (K == 0) --")
     steerer_ol = get_steerer("open_loop", dynamics)
     cfg_ol = _mode_cfg(cfg, "open_loop")
     cfg_ol["optimizer"] = {**cfg_ol["optimizer"], "lr_k": 0.0}  # K never updated
@@ -287,7 +287,7 @@ def run_comparison(scenario_path, mc_samples=0):
     result_ol = planner_ol.solve(mu0, Sigma0, T=T, verbose=True)
 
     # ── Closed-loop covariance steering ─────────────────────────────
-    print("\n── Closed-Loop (K optimised) ──")
+    print("\n-- Closed-Loop (K optimised) --")
     steerer_cl = get_steerer("closed_loop", dynamics)
     cfg_cl = _mode_cfg(cfg, "closed_loop")
     planner_cl = SingleShotPlanner(dynamics, steerer_cl, env, cfg_cl)
@@ -299,8 +299,8 @@ def run_comparison(scenario_path, mc_samples=0):
     det_ol = np.linalg.det(S_end_ol)
     det_cl = np.linalg.det(S_end_cl)
     print("\n  Summary:")
-    print(f"    Open-loop  P(φ) = {result_ol.best_p:.4f},  det(Σ_end) = {det_ol:.2e}")
-    print(f"    Cov-steer  P(φ) = {result_cl.best_p:.4f},  det(Σ_end) = {det_cl:.2e}")
+    print(f"    Open-loop  P(phi) = {result_ol.best_p:.4f},  det(Sigma_end) = {det_ol:.2e}")
+    print(f"    Cov-steer  P(phi) = {result_cl.best_p:.4f},  det(Sigma_end) = {det_cl:.2e}")
     if det_cl > 1e-15:
         print(f"    Covariance reduction: {det_ol / det_cl:.1f}x")
     print(f"    ||K||_F = {result_cl.K.norm().item():.4f}")
@@ -337,15 +337,15 @@ def run_comparison(scenario_path, mc_samples=0):
     # Animation (controlled by cfg["animate"], default false)
     if do_animate:
         gif_path = save_dir / f"{label}.gif"
-        print(f"  Saving animation → {gif_path}")
+        print(f"  Saving animation -> {gif_path}")
         animate_trajectory(result_cl, env, filename=str(gif_path), dt=dt)
 
     # Monte Carlo verification (opt-in via mc_samples > 0)
     if mc_samples > 0:
-        print("\n── Open-Loop MC ──")
+        print("\n-- Open-Loop MC --")
         _run_mc_and_plot(result_ol, dynamics, env, cfg, mu0, Sigma0, T,
                          mc_samples, save_dir, label, device, suffix="_open_loop")
-        print("\n── Closed-Loop MC ──")
+        print("\n-- Closed-Loop MC --")
         _run_mc_and_plot(result_cl, dynamics, env, cfg, mu0, Sigma0, T,
                          mc_samples, save_dir, label, device, suffix="_closed_loop")
 
@@ -424,11 +424,11 @@ def run_covariance_sweep(
     n_state = len(base_cfg["initial_state"]["mean"])
 
     # ── Σ₀ sweep ────────────────────────────────────────────────────────
-    print(f"\n── Σ₀ sweep ({len(sigma0_values)} points) ──")
+    print(f"\n-- Sigma0 sweep ({len(sigma0_values)} points) --")
     sigma0_rows = []
     for var in sigma0_values:
         sigma = var ** 0.5
-        print(f"  σ₀={sigma:.4f} ...", end=" ", flush=True)
+        print(f"  sigma0={sigma:.4f} ...", end=" ", flush=True)
 
         cfg = copy.deepcopy(base_cfg)
         # Only vary position uncertainty (first 2 dims); keep velocity variance from base config
@@ -448,7 +448,7 @@ def run_covariance_sweep(
                  if mc_samples > 0 else ""))
 
     # ── D sweep ─────────────────────────────────────────────────────────
-    print(f"\n── D sweep ({len(D_values)} points) ──")
+    print(f"\n-- D sweep ({len(D_values)} points) --")
     D_rows = []
 
     init = base_cfg["initial_state"]
@@ -475,7 +475,7 @@ def run_covariance_sweep(
     fig = plot_covariance_sweep(sigma0_rows, D_rows, label, save_dir)
     plt.show()
     stem = label.lower().replace(" ", "_")
-    print(f"\n  Saved → {save_dir / f'{stem}_covariance_sweep.png'}")
+    print(f"\n  Saved -> {save_dir / f'{stem}_covariance_sweep.png'}")
 
     return sigma0_rows, D_rows
 
@@ -509,7 +509,7 @@ def run_joint_noise_sweep(
     label = base_cfg.get("label", "sweep")
     vel_cov = list(base_cfg["initial_state"]["cov_diag"][2:])
 
-    print(f"\n── Joint noise sweep ({len(noise_levels)} points) ──")
+    print(f"\n-- Joint noise sweep ({len(noise_levels)} points) --")
     rows = []
     for v in noise_levels:
         print(f"  v={v:.4f} ...", end=" ", flush=True)
@@ -534,6 +534,6 @@ def run_joint_noise_sweep(
     fig = plot_joint_noise_sweep(rows, label, save_dir)
     plt.show()
     stem = label.lower().replace(" ", "_")
-    print(f"\n  Saved → {save_dir / f'{stem}_joint_noise_sweep.png'}")
+    print(f"\n  Saved -> {save_dir / f'{stem}_joint_noise_sweep.png'}")
 
     return rows

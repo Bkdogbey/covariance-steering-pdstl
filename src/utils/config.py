@@ -102,10 +102,10 @@ def skip_run(flag: str, label: str):
     @contextmanager
     def check():
         if flag == "skip":
-            sys.stderr.write(f"\x1b[90m  skip │ {label}\x1b[0m\n")
+            sys.stderr.write(f"\x1b[90m  skip | {label}\x1b[0m\n")
             raise _SkipWith()
         else:
-            sys.stdout.write(f"\x1b[1;32m  run  │ {label}\x1b[0m\n")
+            sys.stdout.write(f"\x1b[1;32m  run  | {label}\x1b[0m\n")
             yield
 
     try:

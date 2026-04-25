@@ -11,6 +11,6 @@ from steering.base import BaseSteerer
 
 class OpenLoopSteerer(BaseSteerer):
 
-    def _step_covariance(self, Sigma, K_t):
+    def _step_covariance(self, Sigma, K_t, V_t):
         A = self.dyn.A
         return A @ Sigma @ A.T + self.dyn.DDT

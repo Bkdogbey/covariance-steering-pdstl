@@ -27,12 +27,13 @@ class BaseSteerer(nn.Module):
         self.dyn = dynamics
 
     @abstractmethod
-    def _step_covariance(self, Sigma, K_t):
+    def _step_covariance(self, Sigma, K_t, V_t):
         """Propagate covariance one step.
 
         Args:
             Sigma: [nx, nx]  current covariance
-            K_t:   [nu, nx]  feedback gain at this step (may be ignored)
+            K_t:   [nu, nx]  feedback gain at this step
+            V_t:   [nu]      pre-saturation feedforward at this step
 
         Returns:
             Sigma_next: [nx, nx]
@@ -58,7 +59,7 @@ class BaseSteerer(nn.Module):
         for t in range(T):
             u_ff = self.dyn.bound_control(V[t])
             mu = self.dyn.A @ mu + self.dyn.B @ u_ff
-            Sigma = self._step_covariance(Sigma, K[t])
+            Sigma = self._step_covariance(Sigma, K[t], V[t])
             mus.append(mu)
             Sigmas.append(Sigma)
 
